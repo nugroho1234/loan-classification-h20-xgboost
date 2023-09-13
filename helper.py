@@ -2,17 +2,24 @@
 import numpy as np
 import pandas as pd
 import re
+import joblib
 
 #scikit-learn libraries
 from sklearn.preprocessing import LabelBinarizer, StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split
 from sklearn.impute import KNNImputer
+from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, confusion_matrix
+from sklearn.model_selection import train_test_split, GridSearchCV
 
 #h2o models and grid search
 from h2o.estimators.gbm import H2OGradientBoostingEstimator
 from h2o.estimators import H2OXGBoostEstimator
 from h2o.estimators.deeplearning import H2ODeepLearningEstimator
 from h2o.grid.grid_search import H2OGridSearch
+
+#xgboost model
+from xgboost import XGBClassifier
+import shap
 
 #plotting libraries
 import matplotlib.pyplot as plt
@@ -149,4 +156,208 @@ def create_box_violin_plot(df,x,y):
     axes[1].set_title(f"Box plot for variable {y}")
     
     plt.show();
+
+def calculate_metrics_summary(h2o_perf, df, model_name):
+    #calculate precision, recall, and support for class 0 and 1
+    precision_class_0 = h2o_perf.precision()[0][0]
+    precision_class_1 = h2o_perf.precision()[0][1]
+    recall_class_0 = h2o_perf.recall()[0][0]
+    recall_class_1 = h2o_perf.recall()[0][1]
+    support_class_0 = df.loan_status.value_counts()['loan_refused']
+    support_class_1 = df.loan_status.value_counts()['loan_given']
+    
+    #calculate weighted precision and recall
+    precision = (precision_class_0 * support_class_0 + precision_class_1 * support_class_1) / (support_class_0 + support_class_1)
+    recall = (recall_class_0 * support_class_0 + recall_class_1 * support_class_1) / (support_class_0 + support_class_1)
+    
+    #calculate F1 score for class 0 and class 1
+    f1_class_0 = 2 * (precision_class_0 * recall_class_0) / (precision_class_0 + recall_class_0)
+    f1_class_1 = 2 * (precision_class_1 * recall_class_1) / (precision_class_1 + recall_class_1)
+    
+    f1 = (f1_class_0 * support_class_0 + f1_class_1 * support_class_1) / (support_class_0 + support_class_1)
+    auc = h2o_perf.auc()
+    
+    print(f"The F1 score for {model_name} is {f1}")
+    print(f"The precision score for {model_name} is {precision}")
+    print(f"The recall score for {model_name} is {recall}")
+    print(f"The AUC score for {model_name} is {auc}")
+    
+    return f1, precision, recall, auc
+
+def compare_score(f1_scores, precision_scores, recall_scores, auc_scores, models):
+    # Bar chart for F1 Score
+    plt.figure(figsize=(12, 6))
+    plt.subplot(221)
+    plt.bar(models, f1_scores, color='skyblue')
+    plt.title('F1 Score')
+    plt.ylim(0, 1)  # Set appropriate limits
+
+    # Bar chart for Precision
+    plt.subplot(222)
+    plt.bar(models, precision_scores, color='lightgreen')
+    plt.title('Precision')
+    plt.ylim(0, 1)  # Set appropriate limits
+
+    # Bar chart for Recall
+    plt.subplot(223)
+    plt.bar(models, recall_scores, color='lightcoral')
+    plt.title('Recall')
+    plt.ylim(0, 1)  # Set appropriate limits
+
+    # Bar chart for AUC Score
+    plt.subplot(224)
+    plt.bar(models, auc_scores, color='gold')
+    plt.title('AUC Score')
+    plt.ylim(0, 1)  # Set appropriate limits
+
+    plt.tight_layout()
+    plt.show();
+    
+    data = {
+        'Model': models,
+        'F1 Score': f1_scores,
+        'Precision': precision_scores,
+        'Recall': recall_scores,
+        'AUC Score': auc_scores
+    }
+
+    # Create a DataFrame
+    scores_df = pd.DataFrame(data)
+    return scores_df
+
+def train_gbm_h2o(predictors, response, train, test, val, learn_rate, max_depth, ntrees, sample_rate, col_sample_rate):
+    #hyperparameters to tune
+    gbm_params1 = {'learn_rate': learn_rate,
+                'max_depth': max_depth,
+                'ntrees': ntrees,
+                'sample_rate': sample_rate,
+                'col_sample_rate': col_sample_rate}
+
+    #initializing grid search
+    gbm_grid1 = H2OGridSearch(
+        model=H2OGradientBoostingEstimator,
+        grid_id='gbm_grid1',
+        hyper_params=gbm_params1
+    )
+    
+    #train the model
+    gbm_grid1.train(
+        x=predictors,
+        y=response,
+        training_frame=train,
+        validation_frame=val,  # Include your validation frame here
+        seed=42
+    )
+    
+    gbm_gridperf1 = gbm_grid1.get_grid(sort_by='aucpr', decreasing=True)
+    
+    #get the best model
+    best_gbm1 = gbm_gridperf1.models[0]
+
+    #evaluate the model against the test data
+    gbm_perf = best_gbm1.model_performance(test)
+    
+    return best_gbm1, gbm_perf, gbm_gridperf1
+
+def train_xgboost(df, n_estimators, max_depth, subsample, reg_alpha, reg_lambda, learning_rate, max_bin):
+    #separate predictors and target
+    X = df.drop('loan_status', axis=1)
+    y = pd.DataFrame(df['loan_status'])
+
+    #mapping the target variable to 0 and 1 so that the algorithm works
+    mapping = {
+        'loan_refused': 0,
+        'loan_given': 1
+    }
+    y['loan_status'] = y['loan_status'].map(mapping)
+
+    #split the dataset into train, test, and validation
+    X_train_temp, X_test, y_train_temp, y_test = train_test_split(X, y, test_size=0.2, random_state=42)
+    X_train, X_val, y_train, y_val = train_test_split(X_train_temp, y_train_temp, test_size=0.2, random_state=42)
+
+    print(f'The number of training dataset is {X_train.shape[0]}, the number of validation dataset is {X_val.shape[0]}, and the number of testing dataset is {X_test.shape[0]}.')
+    
+    param_grid = {
+        'n_estimators': n_estimators,
+        'max_depth': max_depth,
+        'subsample': subsample,
+        'reg_alpha': reg_alpha,
+        'reg_lambda': reg_lambda,
+        'learning_rate': learning_rate,
+        'max_bin': max_bin
+    }
+
+    # Initialize the XGBoost classifier
+    xgb = XGBClassifier(random_state=42, eval_metric='auc', early_stopping_rounds=10)
+
+    # Initialize GridSearchCV with the XGBoost classifier and parameter grid
+    grid_search = GridSearchCV(estimator=xgb, param_grid=param_grid, scoring='roc_auc', cv=3, verbose=1)
+
+    # Fit the grid search to the training data
+    print('Training the model...')
+    grid_search.fit(X_train, y_train,eval_set=[(X_val, y_val)], verbose = 0)
+    print('DONE!')
+    print("Best Parameters:", grid_search.best_params_)
+    best_xgb_model = grid_search.best_estimator_
+    
+    return best_xgb_model, X_test, y_test
+
+def calculate_model_metrics_xgboost(xgboost_model, X_test, y_test, y_pred, model_name):
+    y_pred = xgboost_model.predict(X_test)
+    
+    confusion = confusion_matrix(y_test, y_pred)
+
+    class_names = ['loan_refused', 'loan_given']
+
+    # Plot the confusion matrix
+    plt.figure(figsize=(8, 6))
+    sns.heatmap(confusion, annot=True, fmt='d', cmap='Blues', xticklabels=class_names, yticklabels=class_names)
+    plt.xlabel('Predicted')
+    plt.ylabel('Actual')
+    plt.title('Confusion Matrix (Actual vs Predicted)')
+    plt.show();
+
+    # Calculate precision, recall, AUC, and F1 score
+    precision = precision_score(y_test, y_pred)
+    recall = recall_score(y_test, y_pred)
+    auc = roc_auc_score(y_test, y_pred)  # Assuming y_test and y_pred are continuous scores
+    f1 = f1_score(y_test, y_pred)
+    
+    print(f"The F1 score for {model_name} is {f1}")
+    print(f"The precision score for {model_name} is {precision}")
+    print(f"The recall score for {model_name} is {recall}")
+    print(f"The AUC score for {model_name} is {auc}")
+    
+    return f1, precision, recall, auc
+
+def train_dl_h2o(predictors, response, train, test, val, hidden, epochs, balance_classes, activation):
+    #hyperparameters to tune
+    hyper_params = {
+        'hidden': hidden,
+        'epochs': epochs,
+        'balance_classes': balance_classes,
+        'activation': activation
+    }
+
+    #initialize grid search
+    dl_grid = H2OGridSearch(
+        model=H2ODeepLearningEstimator,
+        grid_id='dl_grid',
+        hyper_params=hyper_params
+    )
+    #train the model
+    dl_grid.train(
+        x=predictors,
+        y=response,
+        training_frame=train,
+        validation_frame=val
+    )
+    
+    # Get the best model from the grid search
+    best_dl_model = dl_grid.get_grid()[0]
+
+    #evaluate model performance against the test data
+    dl_perf = best_dl_model.model_performance(test)
+    
+    return best_dl_model, dl_perf
 
