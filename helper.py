@@ -2,12 +2,9 @@
 import numpy as np
 import pandas as pd
 import re
-import joblib
 
 #scikit-learn libraries
-from sklearn.preprocessing import LabelBinarizer, StandardScaler, MinMaxScaler
 from sklearn.model_selection import train_test_split
-from sklearn.impute import KNNImputer
 from sklearn.metrics import precision_score, recall_score, roc_auc_score, f1_score, confusion_matrix
 from sklearn.model_selection import train_test_split, GridSearchCV
 
@@ -302,7 +299,7 @@ def train_xgboost(df, n_estimators, max_depth, subsample, reg_alpha, reg_lambda,
     
     return best_xgb_model, X_test, y_test
 
-def calculate_model_metrics_xgboost(xgboost_model, X_test, y_test, y_pred, model_name):
+def calculate_model_metrics_xgboost(xgboost_model, X_test, y_test, model_name):
     y_pred = xgboost_model.predict(X_test)
     
     confusion = confusion_matrix(y_test, y_pred)
@@ -318,10 +315,10 @@ def calculate_model_metrics_xgboost(xgboost_model, X_test, y_test, y_pred, model
     plt.show();
 
     # Calculate precision, recall, AUC, and F1 score
-    precision = precision_score(y_test, y_pred)
-    recall = recall_score(y_test, y_pred)
-    auc = roc_auc_score(y_test, y_pred)  # Assuming y_test and y_pred are continuous scores
-    f1 = f1_score(y_test, y_pred)
+    precision = precision_score(y_test, y_pred, average='weighted')
+    recall = recall_score(y_test, y_pred, average='weighted')
+    auc = roc_auc_score(y_test, y_pred)  
+    f1 = f1_score(y_test, y_pred, average='weighted')
     
     print(f"The F1 score for {model_name} is {f1}")
     print(f"The precision score for {model_name} is {precision}")
