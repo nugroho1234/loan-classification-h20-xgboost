@@ -143,6 +143,12 @@ def clip_outliers(df, col: str):
     upper_threshold = q3 + (1.5 * (q3 - q1))
     df[col] = df[col].clip(upper=upper_threshold)
 
+def has_non_ascii(s):
+    for char in s:
+        if ord(char) > 127:
+            return True
+    return False
+
 def create_box_violin_plot(df,x,y):
     fig,axes=plt.subplots(1,2,figsize=(18,10))
     fig.suptitle("Violin and box plots for variable : {}".format(y))
@@ -357,4 +363,41 @@ def train_dl_h2o(predictors, response, train, test, val, hidden, epochs, balance
     dl_perf = best_dl_model.model_performance(test)
     
     return best_dl_model, dl_perf
+
+def check_object_column(df, column):
+    pattern = r'\$?(\d+\.\d+)'
+    column_values = df[column].tolist()
+    extracted_numbers = []
+    supposed_values = None
+    if column in ['current_loan_amount', 'number_of_open_accounts', 'number_of_credit_problems', 'current_credit_balance']:
+        supposed_values = 'int'
+    elif column in ['credit_score', 'annual_income', 'monthly_debt', 'years_of_credit_history', 'months_since_last_delinquent', 'bankruptcies', 'tax_liens']:
+        supposed_values = 'float'
+    else:
+        supposed_values = 'object'
+    column_dtype = df[column].dtype
+    if column_dtype == 'object':
+        data_list = df[column].tolist()
+        for data in data_list:
+            match = re.search(pattern, data)
+            if match:
+                number_str = match.group(1)
+                if supposed_values == 'int':
+                    extracted_numbers.append(int(number_str))
+                elif supposed_values == 'float':
+                    extracted_numbers.append(float(number_str))
+            else:
+                if column == 'monthly_debt':
+                    pass
+                else:
+                    extracted_numbers.append(np.nan)
+    else:
+        df[column] = column_values
+    #print(extracted_numbers)
+    if len(extracted_numbers) > 0:
+        df[column] = extracted_numbers
+    column_dtype = df[column].dtype
+    if column_dtype == 'object' or column_dtype == 'float32':
+        df[column] = df[column].astype('float64')
+    return df
 
