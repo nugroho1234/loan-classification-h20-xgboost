@@ -1,4 +1,4 @@
-# Predicting Loan Approval Using H2O
+# Predicting Loan Approval Using H2O.ai
 This is an end-to-end data science project to create a loan approval prediction. This project aims to create a loan prediction model, deploy it using FastAPI, and dockerize it for future deployment.
 
 ## Installation
