@@ -56,12 +56,12 @@ def predict_price(data: LoanPred):
     #create h2o dataframe
     hf = h2o.H2OFrame(df)
     
-    #predict the data
+    #predict the data 
     threshold_metrics = 'precision'
     prediction = preprocess.predict_data(model, hf, threshold_metrics=threshold_metrics)
         
     return JSONResponse(content=prediction)
 
 if __name__ == '__main__':
-    uvicorn.run("main:LoanPredApp",host='127.0.0.1', port=8005, reload=True, workers=4)
+    uvicorn.run("main:LoanPredApp",host='0.0.0.0', port=5000, reload=True, workers=4)
 
