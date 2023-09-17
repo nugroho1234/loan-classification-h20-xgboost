@@ -61,13 +61,18 @@ The folder contains the models generated from this project and the dictionaries 
 # How to Use This Project
 You can examine my notebook and perform similar or different EDA and preprocessing steps. 
 
-If you're interested in running the API, the command to run it is:
+If you're interested in running the API, go to the app folder first, then run:
+
 uvicorn main:LoanPredApp --reload
 
 If you want to build the docker container, make sure you've downloaded docker for Windows. Use this command:
+
 docker build -t "name of your project" 
+
 to build the docker image. Then, use this command:
+
 docker run -p 5000:5000 loan-prediction-app
+
 to run the docker image.
 
 Don't forget to download and install java to ensure the H2O server is running.
