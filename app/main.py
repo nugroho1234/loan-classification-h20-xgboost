@@ -2,7 +2,7 @@
 from fastapi import FastAPI
 from fastapi.responses import JSONResponse
 import uvicorn
-from loan_classification_variables import LoanPred
+from loan_classification_variables import LoanPred, ThresholdMetrics
 
 #h2o
 import h2o
@@ -46,7 +46,7 @@ def index():
     return{'message': 'use /predict to make loan prediction'}
 
 @LoanPredApp.post('/predict')
-def predict_price(data: LoanPred):
+def predict_price(data: LoanPred, threshold: ThresholdMetrics):
     #convert JSON payload to dictionary
     data = data.dict()
     
@@ -57,7 +57,7 @@ def predict_price(data: LoanPred):
     hf = h2o.H2OFrame(df)
     
     #predict the data 
-    threshold_metrics = 'precision'
+    threshold_metrics = threshold.threshold_metrics
     prediction = preprocess.predict_data(model, hf, threshold_metrics=threshold_metrics)
         
     return JSONResponse(content=prediction)

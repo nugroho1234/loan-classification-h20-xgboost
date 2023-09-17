@@ -17,4 +17,6 @@ class LoanPred(BaseModel):
     maximum_open_credit: float
     bankruptcies: float
     tax_liens: float
-        
+
+class ThresholdMetrics(BaseModel):
+    threshold_metrics: str
